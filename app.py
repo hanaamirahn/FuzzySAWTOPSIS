@@ -4,7 +4,7 @@ import numpy as np
 
 st.set_page_config(page_title="Analisis SAW & TOPSIS - Cloud Storage", layout="wide")
 
-st.title("📊 Analisis Perbandingan Metode SAW dan TOPSIS")
+st.title("📊 Analisis Perbandingan Metode SAW dan TOPSIS FUZZY")
 st.subheader("Penentuan Pemilihan Layanan Cloud Storage pada Lima Alternatif Provider")
 
 
