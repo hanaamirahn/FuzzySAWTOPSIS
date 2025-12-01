@@ -253,7 +253,21 @@ def convert_df(df):
 csv = convert_df(result_df)
 st.download_button("Download hasil (CSV)", data=csv, file_name='hasil_saw_topsis.csv', mime='text/csv')
 
-
+# Show simple flowchart using graphviz
+st.subheader("Flowchart Proses")
+flow = '''
+digraph G {
+  rankdir=LR;
+  node [shape=box, style=rounded];
+  Input -> FuzzyConversion -> Normalization -> Calculation;
+  Calculation -> Results;
+  Input [label="Input data: Alternatif + Kriteria"];
+  FuzzyConversion [label="Representasi Fuzzy (Triangular)"];
+  Normalization [label="Normalisasi untuk SAW/TOPSIS"];
+  Calculation [label="Hitung Fuzzy SAW & Fuzzy TOPSIS"];
+  Results [label="Perangkingan & Ekspor CSV"];
+}
+'''
 st.graphviz_chart(flow)
 
 st.markdown("---")
