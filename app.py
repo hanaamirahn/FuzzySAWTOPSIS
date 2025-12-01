@@ -1,188 +1,274 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import math
+import io
 
-st.set_page_config(page_title="Analisis SAW & TOPSIS - Cloud Storage", layout="wide")
+st.set_page_config(page_title="SAW vs TOPSIS - Fuzzy Multicriteria", layout='wide')
 
-st.title("📊 Analisis Perbandingan Metode SAW dan TOPSIS")
-st.subheader("Penentuan Pemilihan Layanan Cloud Storage pada Lima Alternatif Provider")
+st.title("Analisis Perbandingan Metode Fuzzy SAW dan TOPSIS\nPemilihan Layanan Cloud Storage (5 Kriteria)")
+st.markdown("Kriteria: C1=Biaya penyimpanan (Cost), C2=Biaya Egress (Cost), C3=Latency (Benefit), C4=Skalabilitas & Integrasi (Benefit), C5=Keamanan & Compliance (Benefit). Bobot: [0.25,0.20,0.20,0.15,0.20].")
 
+# Fixed weights and meta
+criteria = [
+    {"code":"C1","name":"Biaya penyimpanan","type":"cost","weight":0.25},
+    {"code":"C2","name":"Biaya Egress","type":"cost","weight":0.20},
+    {"code":"C3","name":"Latency / Kecepatan Akses","type":"benefit","weight":0.20},
+    {"code":"C4","name":"Skalabilitas & Kemudahan Integrasi","type":"benefit","weight":0.15},
+    {"code":"C5","name":"Keamanan & Compliance","type":"benefit","weight":0.20},
+]
+weights = [c['weight'] for c in criteria]
 
-# ============================
-# DATA DASAR
-# ============================
-
-# Bobot kriteria
-weights = {
-    "C1": 0.25,
-    "C2": 0.20,
-    "C3": 0.20,
-    "C4": 0.15,
-    "C5": 0.20,
+# Linguistic to triangular fuzzy number mapping for qualitative criteria
+linguistic_map = {
+    "Sangat Buruk": (0.0, 0.0, 0.25),
+    "Buruk": (0.0, 0.25, 0.5),
+    "Cukup": (0.25, 0.5, 0.75),
+    "Baik": (0.5, 0.75, 1.0),
+    "Sangat Baik": (0.75, 1.0, 1.0),
 }
 
-# Atribut (cost = minimum lebih baik, benefit = maksimum lebih baik)
-attributes = {
-    "C1": "cost",
-    "C2": "cost",
-    "C3": "benefit",
-    "C4": "benefit",
-    "C5": "benefit",
-}
+st.sidebar.header("Pengaturan Input")
+num = st.sidebar.number_input("Jumlah alternatif", min_value=2, max_value=10, value=5, step=1)
 
-# Data crips mapping
-crips = {
-    "C1": [(0.025, 40), (0.025, 60), (0.015, 80), (0.005, 100)],
-    "C2": [(0.10, 40), (0.10, 60), (0.05, 80), (0.01, 100)],
-}
+with st.sidebar.expander("Petunjuk"):
+    st.write("Masukkan nilai numerik untuk C1 ($/GB), C2 ($/GB), C3 (ms). Untuk C4 dan C5 pilih bahasa kualitatif (Sangat Buruk..Sangat Baik). Aplikasi akan mengubah semua menjadi bilangan fuzzy segitiga dan menjalankan perhitungan Fuzzy SAW dan Fuzzy TOPSIS.")
 
-# Alternatif input mentah
-raw_data = pd.DataFrame({
-    "Alternatif": ["Amazon S3", "Google Cloud Storage", "Azure Blob Storage", "Backblaze B2", "Wasabi"],
-    "C1": [0.023, 0.020, 0.018, 0.006, 0.00699],
-    "C2": [0.09, 0.11, 0.08, 0.00, 0.00],
-    "C3": [20, 20, 20, 250, 40],
-    "C4": ["Sangat Baik", "Sangat Baik", "Sangat Baik", "Sedang", "Baik"],
-    "C5": ["Sangat Baik", "Sangat Baik", "Sangat Baik", "Baik", "Baik"],
-})
+# Collect alternatives
+alts = []
+st.header("Input Data Alternatif")
+cols = st.columns([1,1,1,1,1,1])
+with cols[0]:
+    names = []
+    for i in range(num):
+        names.append(st.text_input(f"Nama Alternatif #{i+1}", value=f"A{i+1}"))
 
-st.header("📥 Data Alternatif")
-st.dataframe(raw_data, use_container_width=True)
+# Create a form-like grid for numeric/qualitative inputs
+values = {c['code']: [] for c in criteria}
+for i in range(num):
+    st.subheader(f"Alternatif: {names[i]}")
+    c1 = st.number_input(f"{names[i]} - C1: Biaya penyimpanan ($/GB)", min_value=0.0, value=0.03, key=f"c1_{i}")
+    c2 = st.number_input(f"{names[i]} - C2: Biaya Egress ($/GB)", min_value=0.0, value=0.10, key=f"c2_{i}")
+    c3 = st.number_input(f"{names[i]} - C3: Latency (ms) - lebih kecil lebih baik? (angka) ", min_value=0.0, value=20.0, key=f"c3_{i}")
+    c4 = st.selectbox(f"{names[i]} - C4: Skalabilitas & Kemudahan Integrasi", options=list(linguistic_map.keys()), index=3, key=f"c4_{i}")
+    c5 = st.selectbox(f"{names[i]} - C5: Keamanan & Compliance", options=list(linguistic_map.keys()), index=3, key=f"c5_{i}")
+    values['C1'].append(c1)
+    values['C2'].append(c2)
+    values['C3'].append(c3)
+    values['C4'].append(c4)
+    values['C5'].append(c5)
 
+# Utility: triangular fuzzy operations
 
+def to_tri_from_numeric(x, rel=0.05):
+    # make small fuzziness around crisp number
+    if x == 0:
+        return (0.0, 0.0, 0.0)
+    return (x * (1 - rel), x, x * (1 + rel))
 
-# ============================
-# KONVERSI CRISP → NILAI
-# ============================
+def tri_div(A, B):
+    # A and B are triangular tuples (l,m,u)
+    # A / B approximated by (lA/uB, mA/mB, uA/lB) guard div by zero
+    l = A[0] / (B[2] if B[2] != 0 else 1e-9)
+    m = A[1] / (B[1] if B[1] != 0 else 1e-9)
+    u = A[2] / (B[0] if B[0] != 0 else 1e-9)
+    return (l, m, u)
 
-def convert_c1(x):
-    if x > 0.025: return 40
-    elif x <= 0.025 and x > 0.015: return 60
-    elif x <= 0.015 and x > 0.005: return 80
-    else: return 100
+def tri_mul_scalar(A, scalar):
+    return (A[0]*scalar, A[1]*scalar, A[2]*scalar)
 
-def convert_c2(x):
-    if x > 0.10: return 40
-    elif x <= 0.10 and x > 0.05: return 60
-    elif x <= 0.05 and x > 0.01: return 80
-    else: return 100
+def tri_add(A, B):
+    return (A[0]+B[0], A[1]+B[1], A[2]+B[2])
 
-def convert_c3(x):
-    if x > 50: return 40
-    elif 31 <= x <= 50: return 60
-    elif 21 <= x <= 30: return 80
-    else: return 100
+def tri_distance(A, B):
+    # Vertex method
+    return math.sqrt(((A[0]-B[0])**2 + (A[1]-B[1])**2 + (A[2]-B[2])**2)/3.0)
 
-def convert_text(value):
-    mapping = {"Kurang":40, "Cukup":60, "Baik":80, "Sangat Baik":100}
-    return mapping[value]
+def defuzzify_centroid(A):
+    return (A[0] + A[1] + A[2]) / 3.0
 
+# Build fuzzy decision matrix
+fuzzy_matrix = []  # list of list of triangular numbers
+for i in range(num):
+    row = []
+    # C1 (cost)
+    t1 = to_tri_from_numeric(values['C1'][i], rel=0.05)
+    row.append(t1)
+    # C2 (cost)
+    t2 = to_tri_from_numeric(values['C2'][i], rel=0.05)
+    row.append(t2)
+    # C3 (benefit: latency lower is better -> we invert numeric to be benefit-like by using 1/latency)
+    latency = values['C3'][i]
+    if latency <= 0:
+        latency = 1e-6
+    latency_inv = 1.0 / latency
+    t3 = to_tri_from_numeric(latency_inv, rel=0.05)
+    row.append(t3)
+    # C4 qualitative
+    row.append(linguistic_map[values['C4'][i]])
+    # C5 qualitative
+    row.append(linguistic_map[values['C5'][i]])
+    fuzzy_matrix.append(row)
 
-processed = raw_data.copy()
-processed["C1"] = processed["C1"].apply(convert_c1)
-processed["C2"] = processed["C2"].apply(convert_c2)
-processed["C3"] = processed["C3"].apply(convert_c3)
-processed["C4"] = processed["C4"].apply(convert_text)
-processed["C5"] = processed["C5"].apply(convert_text)
+# Show fuzzy matrix
+st.subheader("Matriks Fuzzy (Triangular) — representasi internal")
+fm_display = []
+for i in range(num):
+    row = {"Alternatif": names[i]}
+    for j, c in enumerate(criteria):
+        row[c['code']] = str(tuple(round(v,4) for v in fuzzy_matrix[i][j]))
+    fm_display.append(row)
+st.dataframe(pd.DataFrame(fm_display))
 
-st.header("📗 Data Setelah Konversi Crips → Nilai")
-st.dataframe(processed, use_container_width=True)
+# Fuzzy SAW
+st.header("Hasil Analisis: Fuzzy SAW dan Fuzzy TOPSIS")
 
+# Normalization for SAW: for benefit criteria, divide by max; for cost criteria, min/val
+# For triangular we need fuzzy normalization: r_ij = a_ij / a_jmax (for benefit), or a_jmin / a_ij (for cost)
+# We'll compute per-criterion fuzzy max (by upper bound) and min (by lower bound)
 
-# ============================
-# SAW METHOD
-# ============================
+# compute per-criterion max upper and min lower
+max_upper = []
+min_lower = []
+for j in range(len(criteria)):
+    uppers = [fuzzy_matrix[i][j][2] for i in range(num)]
+    lowers = [fuzzy_matrix[i][j][0] for i in range(num)]
+    max_upper.append(max(uppers))
+    min_lower.append(min(lowers))
 
-st.header("🔎 Perhitungan Metode SAW")
+# SAW normalized fuzzy matrix
+norm_fuzzy = [[(0,0,0) for _ in range(len(criteria))] for _ in range(num)]
+for i in range(num):
+    for j, c in enumerate(criteria):
+        A = fuzzy_matrix[i][j]
+        if c['type'] == 'benefit':
+            B = (min_lower[j], (min_lower[j]+max_upper[j])/2.0, max_upper[j])
+            # To normalize benefit: A / max_upper_j approximately
+            denom = (min_lower[j], (min_lower[j]+max_upper[j])/2.0, max_upper[j])
+            norm = tri_div(A, denom)
+        else:
+            # cost: normalize by min / A
+            numerator = (min_lower[j], (min_lower[j]+min_lower[j])/2.0, min_lower[j])
+            norm = tri_div(numerator, A)
+        norm_fuzzy[i][j] = norm
 
-df = processed.copy()
-criteria = ["C1","C2","C3","C4","C5"]
+# Weighted normalized
+weighted_fuzzy = [[(0,0,0) for _ in range(len(criteria))] for _ in range(num)]
+for i in range(num):
+    for j, c in enumerate(criteria):
+        weighted_fuzzy[i][j] = tri_mul_scalar(norm_fuzzy[i][j], c['weight'])
 
-# Normalisasi
-norm = df.copy()
-for c in criteria:
-    if attributes[c] == "benefit":
-        norm[c] = df[c] / df[c].max()
-    else:  # cost
-        norm[c] = df[c].min() / df[c]
+# SAW score (sum of weighted fuzzy numbers) then defuzzify
+saw_scores_fuzzy = [ (0.0,0.0,0.0) for _ in range(num)]
+for i in range(num):
+    s = (0.0,0.0,0.0)
+    for j in range(len(criteria)):
+        s = tri_add(s, weighted_fuzzy[i][j])
+    saw_scores_fuzzy[i] = s
+saw_scores = [defuzzify_centroid(s) for s in saw_scores_fuzzy]
 
-# Hitung nilai SAW
-norm["SAW"] = (
-    norm["C1"]*weights["C1"] +
-    norm["C2"]*weights["C2"] +
-    norm["C3"]*weights["C3"] +
-    norm["C4"]*weights["C4"] +
-    norm["C5"]*weights["C5"]
-)
-
-saw_result = norm[["Alternatif","SAW"]].copy()
-saw_result["Ranking"] = saw_result["SAW"].rank(ascending=False).astype(int)
-saw_result = saw_result.sort_values("Ranking")
-
-st.subheader("📌 Hasil SAW")
-st.dataframe(saw_result, use_container_width=True)
-
-
-
-# ============================
-# TOPSIS METHOD
-# ============================
-
-st.header("🔎 Perhitungan Metode TOPSIS")
-
-X = df[criteria].values.astype(float)
-
-# Normalisasi
-R = X / np.sqrt((X**2).sum(axis=0))
-
-# Normalisasi terbobot
-W = np.array([weights[c] for c in criteria])
-Y = R * W
-
-# Solusi ideal
-ideal_positive = np.zeros(len(criteria))
-ideal_negative = np.zeros(len(criteria))
-
-for i, c in enumerate(criteria):
-    if attributes[c] == "benefit":
-        ideal_positive[i] = Y[:, i].max()
-        ideal_negative[i] = Y[:, i].min()
+# TOPSIS fuzzy
+# Determine fuzzy PIS and NIS per criterion
+pis = [None]*len(criteria)
+nis = [None]*len(criteria)
+for j, c in enumerate(criteria):
+    # For benefit: PIS = max upper among alternatives, NIS = min lower
+    if c['type'] == 'benefit':
+        pis[j] = (max([fuzzy_matrix[i][j][0] for i in range(num)]),
+                  max([fuzzy_matrix[i][j][1] for i in range(num)]),
+                  max([fuzzy_matrix[i][j][2] for i in range(num)]))
+        nis[j] = (min([fuzzy_matrix[i][j][0] for i in range(num)]),
+                  min([fuzzy_matrix[i][j][1] for i in range(num)]),
+                  min([fuzzy_matrix[i][j][2] for i in range(num)]))
     else:
-        ideal_positive[i] = Y[:, i].min()
-        ideal_negative[i] = Y[:, i].max()
+        # cost: PIS should be minimum (best small), NIS maximum
+        pis[j] = (min([fuzzy_matrix[i][j][0] for i in range(num)]),
+                  min([fuzzy_matrix[i][j][1] for i in range(num)]),
+                  min([fuzzy_matrix[i][j][2] for i in range(num)]))
+        nis[j] = (max([fuzzy_matrix[i][j][0] for i in range(num)]),
+                  max([fuzzy_matrix[i][j][1] for i in range(num)]),
+                  max([fuzzy_matrix[i][j][2] for i in range(num)]))
 
-# Jarak
-D_pos = np.sqrt(((Y - ideal_positive) ** 2).sum(axis=1))
-D_neg = np.sqrt(((Y - ideal_negative) ** 2).sum(axis=1))
+# For TOPSIS we should use weighted normalized fuzzy matrix
+# We'll reuse weighted_fuzzy from SAW (approx) — acceptable for demonstration
 
-# Nilai preferensi TOPSIS
-C = D_neg / (D_pos + D_neg)
+# Compute distance to PIS and NIS for each alternative
+dist_to_pis = [0.0]*num
+dist_to_nis = [0.0]*num
+for i in range(num):
+    dp = 0.0
+    dn = 0.0
+    for j in range(len(criteria)):
+        # multiply pis/nis by weight too
+        w = criteria[j]['weight']
+        wp = tri_mul_scalar(pis[j], w)
+        wn = tri_mul_scalar(nis[j], w)
+        dij_p = tri_distance(weighted_fuzzy[i][j], wp)
+        dij_n = tri_distance(weighted_fuzzy[i][j], wn)
+        dp += dij_p
+        dn += dij_n
+    dist_to_pis[i] = dp
+    dist_to_nis[i] = dn
 
-topsis_result = pd.DataFrame({
-    "Alternatif": raw_data["Alternatif"],
-    "TOPSIS": C,
+# Closeness coefficient
+cc = []
+for i in range(num):
+    denom = dist_to_pis[i] + dist_to_nis[i]
+    if denom == 0:
+        cc.append(0)
+    else:
+        cc.append(dist_to_nis[i] / denom)
+
+# Prepare result tables
+result_df = pd.DataFrame({
+    'Alternatif': names,
+    'SAW_fuzzy_l': [round(x[0],4) for x in saw_scores_fuzzy],
+    'SAW_fuzzy_m': [round(x[1],4) for x in saw_scores_fuzzy],
+    'SAW_fuzzy_u': [round(x[2],4) for x in saw_scores_fuzzy],
+    'SAW_score_defuzz': [round(x,6) for x in saw_scores],
+    'TOPSIS_closeness': [round(x,6) for x in cc]
 })
-topsis_result["Ranking"] = topsis_result["TOPSIS"].rank(ascending=False).astype(int)
-topsis_result = topsis_result.sort_values("Ranking")
 
-st.subheader("📌 Hasil TOPSIS")
-st.dataframe(topsis_result, use_container_width=True)
+result_df['Rank_SAW'] = result_df['SAW_score_defuzz'].rank(ascending=False, method='min').astype(int)
+result_df['Rank_TOPSIS'] = result_df['TOPSIS_closeness'].rank(ascending=False, method='min').astype(int)
 
+st.subheader("Tabel Hasil dan Perangkingan")
+st.dataframe(result_df.sort_values('Rank_TOPSIS'))
 
+# Present top alternatives
+st.subheader("Ringkasan Rekomendasi")
+best_saw = result_df.sort_values('Rank_SAW').iloc[0]
+best_topsis = result_df.sort_values('Rank_TOPSIS').iloc[0]
+col1, col2 = st.columns(2)
+with col1:
+    st.metric("Peringkat Terbaik (SAW)", f"{best_saw['Alternatif']} (Rank {best_saw['Rank_SAW']})")
+with col2:
+    st.metric("Peringkat Terbaik (TOPSIS)", f"{best_topsis['Alternatif']} (Rank {best_topsis['Rank_TOPSIS']})")
 
-# ============================
-# GRAFIK PERBANDINGAN
-# ============================
+# Download results
+@st.cache_data
+def convert_df(df):
+    return df.to_csv(index=False).encode('utf-8')
 
-st.header("📈 Grafik Perbandingan SAW vs TOPSIS")
+csv = convert_df(result_df)
+st.download_button("Download hasil (CSV)", data=csv, file_name='hasil_saw_topsis.csv', mime='text/csv')
 
-graph_data = pd.DataFrame({
-    "Alternatif": raw_data["Alternatif"],
-    "SAW": saw_result.sort_values("Ranking")["SAW"].values,
-    "TOPSIS": topsis_result.sort_values("Ranking")["TOPSIS"].values,
-})
+# Show simple flowchart using graphviz
+st.subheader("Flowchart Proses")
+flow = '''
+digraph G {
+  rankdir=LR;
+  node [shape=box, style=rounded];
+  Input -> FuzzyConversion -> Normalization -> Calculation;
+  Calculation -> Results;
+  Input [label="Input data: Alternatif + Kriteria"];
+  FuzzyConversion [label="Representasi Fuzzy (Triangular)"];
+  Normalization [label="Normalisasi untuk SAW/TOPSIS"];
+  Calculation [label="Hitung Fuzzy SAW & Fuzzy TOPSIS"];
+  Results [label="Perangkingan & Ekspor CSV"];
+}
+'''
+st.graphviz_chart(flow)
 
-st.bar_chart(graph_data.set_index("Alternatif"))
-
-
-st.success("Analisis SAW dan TOPSIS berhasil dihitung dan divisualisasikan.")
+st.markdown("---")
+st.caption("Aplikasi demonstrasi: metode fuzzy SAW dan TOPSIS yang disederhanakan untuk konteks pembelajaran/penelitian. Untuk penelitian formal, Anda mungkin ingin menyesuaikan pemetaan fuzzy, metode normalisasi, dan cara defuzzifikasi sesuai literatur.")
