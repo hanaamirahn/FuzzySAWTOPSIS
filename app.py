@@ -232,3 +232,45 @@ if st.button("Hitung SAW dan TOPSIS"):
     df_topsis["Ranking"] = range(1, len(df_topsis) + 1)
     
     st.dataframe(df_topsis)
+
+# ============================================================
+# -------------- PERBANDINGAN RANKING SAW VS TOPSIS ----------
+# ============================================================
+st.header("📊 Perbandingan Hasil Ranking SAW dan TOPSIS")
+
+# Ambil ranking SAW (index default sudah acak karena sorted)
+df_saw_rank = df_saw[["Alternatif", "Ranking"]].copy()
+df_saw_rank.rename(columns={"Ranking": "Ranking_SAW"}, inplace=True)
+
+# Ambil ranking TOPSIS
+df_topsis_rank = df_topsis.copy()
+df_topsis_rank.reset_index(inplace=True)
+df_topsis_rank.rename(columns={"index": "Alternatif", "Ranking": "Ranking_TOPSIS"}, inplace=True)
+
+# Gabungkan
+df_compare = pd.merge(df_saw_rank, df_topsis_rank[["Alternatif", "Ranking_TOPSIS"]], on="Alternatif")
+
+# Hitung selisih peringkat
+df_compare["Selisih"] = df_compare["Ranking_TOPSIS"] - df_compare["Ranking_SAW"]
+
+# Urutkan berdasarkan ranking TOPSIS atau SAW (bebas, tapi lebih logis urut SAW)
+df_compare = df_compare.sort_values("Ranking_SAW").reset_index(drop=True)
+
+st.dataframe(df_compare)
+
+# Kesimpulan otomatis
+st.subheader("📌 Analisis Singkat Konsistensi Ranking")
+
+jumlah_sama = sum(df_compare["Ranking_SAW"] == df_compare["Ranking_TOPSIS"])
+total_alt = len(df_compare)
+
+if jumlah_sama == total_alt:
+    st.success("🎉 **Kedua metode menghasilkan urutan ranking yang sama persis.** Ini menunjukkan konsistensi penuh antara SAW dan TOPSIS.")
+elif jumlah_sama > 0:
+    st.warning(f"⚠ **Sebagian alternatif memiliki ranking yang sama**, tetapi tidak semuanya.\n\n"
+               f"- Jumlah peringkat yang sama: **{jumlah_sama}/{total_alt}**\n"
+               f"- Ada perbedaan yang berarti antara metode SAW dan TOPSIS.")
+else:
+    st.error("❗ **Tidak ada ranking yang sama antara SAW dan TOPSIS.** "
+             "Ini menunjukkan kedua metode memberikan perspektif berbeda dalam evaluasi alternatif.")
+
