@@ -217,9 +217,12 @@ if st.button("Hitung SAW dan TOPSIS"):
         "S-": S_minus
     })
     
-    st.dataframe(df_distance)
+    # Tampilkan hanya Alternatif, S+, S-
+    df_distance_display = df_distance[["Alternatif", "S+", "S-"]]
+    st.dataframe(df_distance_display)
     
-    # --- 5. Nilai Preferensi C+ ---
+    
+    # --- 5. Nilai Preferensi C+ dan Ranking ---
     st.subheader("7️⃣ Nilai Preferensi (C+) dan Ranking")
     
     C_plus = S_minus / (S_plus + S_minus)
@@ -232,6 +235,9 @@ if st.button("Hitung SAW dan TOPSIS"):
     })
     
     df_topsis = df_topsis.sort_values("C+", ascending=False)
-    df_topsis["Ranking"] = range(1, len(df_topsis)+1)
+    df_topsis["Ranking"] = range(1, len(df_topsis) + 1)
     
-    st.dataframe(df_topsis)
+    # Tampilkan sesuai format:
+    # Alternatif | S+ | S– | C+ | Ranking
+    df_topsis_display = df_topsis[["Alternatif", "S+", "S-", "C+", "Ranking"]]
+    st.dataframe(df_topsis_display)
