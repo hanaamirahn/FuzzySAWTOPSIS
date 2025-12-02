@@ -134,16 +134,16 @@ if st.button("Hitung SAW dan TOPSIS"):
     # ------------------------- TOPSIS ----------------------------
     # ============================================================
     st.header("📗 Perhitungan Metode TOPSIS")
-
+    
     df_t = df.copy()
     
-    # --- 1. Matriks Normalisasi R (Bukan Vektor Normalisasi!) ---
+    # --- 1. Normalisasi Matriks R (VERSI BENAR TOPSIS) ---
     st.subheader("3️⃣ Matriks Ternormalisasi (R)")
     
-    # R = x_ij / max(x_j)
-    R = df_t[kriteria] / df_t[kriteria].max()
-    
+    # Normalisasi vektor: x_ij / sqrt(sum(x_ij^2))
+    R = df_t[kriteria].astype(float) / np.sqrt((df_t[kriteria].astype(float)**2).sum())
     R.index = df['Alternatif']
+    
     st.dataframe(R)
     
     # --- 2. Matriks Ternormalisasi Terbobot (Y) ---
@@ -151,18 +151,23 @@ if st.button("Hitung SAW dan TOPSIS"):
     
     bobot_array = np.array(list(bobot.values()))
     Y = R * bobot_array
+    Y.index = df['Alternatif']
+    
     st.dataframe(Y)
     
-    # --- 3. Solusi Ideal Positif & Negatif ---
+    # --- 3. Solusi Ideal Positif (A+) dan Negatif (A-) ---
     st.subheader("5️⃣ Solusi Ideal Positif (A+) dan Negatif (A-)")
     
     A_plus = []
     A_minus = []
     
     for c in kriteria:
-        # Semua kriteria dianggap COST seperti manual
-        A_plus.append(Y[c].min())   # ideal positif cost → min
-        A_minus.append(Y[c].max())  # ideal negatif cost → max
+        if atribut[c] == "benefit":
+            A_plus.append(Y[c].max())
+            A_minus.append(Y[c].min())
+        else:  # cost
+            A_plus.append(Y[c].min())
+            A_minus.append(Y[c].max())
     
     A_plus_df = pd.DataFrame([A_plus], columns=kriteria)
     A_minus_df = pd.DataFrame([A_minus], columns=kriteria)
@@ -173,11 +178,11 @@ if st.button("Hitung SAW dan TOPSIS"):
     st.write("✔ **A– (Ideal Negatif)**")
     st.dataframe(A_minus_df)
     
-    # --- 4. Jarak S+ dan S- ---
+    # --- 4. Menghitung Jarak S+ dan S- ---
     st.subheader("6️⃣ Jarak ke Solusi Ideal (S+ dan S-)")
     
-    S_plus = np.sqrt(((Y - A_plus) ** 2).sum(axis=1))
-    S_minus = np.sqrt(((Y - A_minus) ** 2).sum(axis=1))
+    S_plus = np.sqrt(((Y - A_plus)**2).sum(axis=1))
+    S_minus = np.sqrt(((Y - A_minus)**2).sum(axis=1))
     
     df_distance = pd.DataFrame({
         "Alternatif": df["Alternatif"],
@@ -187,7 +192,7 @@ if st.button("Hitung SAW dan TOPSIS"):
     
     st.dataframe(df_distance)
     
-    # --- 5. Nilai Preferensi (C+) ---
+    # --- 5. Nilai Preferensi C+ ---
     st.subheader("7️⃣ Nilai Preferensi (C+) dan Ranking")
     
     C_plus = S_minus / (S_plus + S_minus)
@@ -200,6 +205,6 @@ if st.button("Hitung SAW dan TOPSIS"):
     })
     
     df_topsis = df_topsis.sort_values("C+", ascending=False)
-    df_topsis["Ranking"] = range(1, len(df_topsis) + 1)
+    df_topsis["Ranking"] = range(1, len(df_topsis)+1)
     
     st.dataframe(df_topsis)
