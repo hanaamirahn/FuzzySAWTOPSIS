@@ -74,21 +74,48 @@ for i in range(jumlah_alt):
     st.markdown(f"### Alternatif A{i+1}")
     nama = st.text_input(f"Nama Alternatif A{i+1}", key=f"nama_{i}")
 
-    c1 = st.number_input(f"C1 Biaya Penyimpanan ($/GB)", min_value=0.0, key=f"c1_{i}")
-    c2 = st.number_input(f"C2 Biaya Egress ($/GB)", min_value=0.0, key=f"c2_{i}")
-    c3 = st.number_input(f"C3 Latency (ms)", min_value=0.0, key=f"c3_{i}")
+    # Perbaikan: mendukung 3–7 angka di belakang koma
+    c1 = st.number_input(
+        f"C1 Biaya Penyimpanan ($/GB)",
+        min_value=0.0,
+        step=0.0000001,
+        format="%.7f",
+        key=f"c1_{i}"
+    )
+    c2 = st.number_input(
+        f"C2 Biaya Egress ($/GB)",
+        min_value=0.0,
+        step=0.0000001,
+        format="%.7f",
+        key=f"c2_{i}"
+    )
+    c3 = st.number_input(
+        f"C3 Latency (ms)",
+        min_value=0.0,
+        step=0.0000001,
+        format="%.7f",
+        key=f"c3_{i}"
+    )
 
-    c4 = st.selectbox("C4 Skalabilitas & Kemudahan Integrasi", ["Rendah", "Sedang", "Baik", "Sangat Baik"], key=f"c4_{i}")
-    c5 = st.selectbox("C5 Keamanan & Compliance", ["Kurang", "Cukup", "Baik", "Sangat Baik"], key=f"c5_{i}")
+    c4 = st.selectbox(
+        "C4 Skalabilitas & Kemudahan Integrasi",
+        ["Rendah", "Sedang", "Baik", "Sangat Baik"],
+        key=f"c4_{i}"
+    )
+    c5 = st.selectbox(
+        "C5 Keamanan & Compliance",
+        ["Kurang", "Cukup", "Baik", "Sangat Baik"],
+        key=f"c5_{i}"
+    )
 
     data_input.append([
-    nama,
-    konversi_crips("C1", c1),
-    konversi_crips("C2", c2),
-    konversi_crips("C3", c3),
-    map_kategori_C4[c4],
-    map_kategori_C5[c5]
-])
+        nama,
+        konversi_crips("C1", c1),
+        konversi_crips("C2", c2),
+        konversi_crips("C3", c3),
+        map_kategori_C4[c4],
+        map_kategori_C5[c5]
+    ])
 
 
 # ============================================================
