@@ -223,9 +223,9 @@ if st.button("Hitung SAW dan TOPSIS"):
     C_plus = S_minus / (S_plus + S_minus)
     
     df_topsis = pd.DataFrame({
-        "C+": C_plus,
         "S+": S_plus,
-        "S-": S_minus
+        "S-": S_minus,
+        "C+": C_plus
     })
     
     df_topsis = df_topsis.sort_values("C+", ascending=False)
