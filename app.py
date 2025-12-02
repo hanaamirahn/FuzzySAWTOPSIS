@@ -132,7 +132,7 @@ if st.button("Hitung SAW dan TOPSIS"):
     st.header("📘 Perhitungan Metode SAW")
 
     # --- Normalisasi SAW ---
-    st.subheader("3️⃣ Tahap Normalisasi SAW")
+    st.subheader("Tahap Normalisasi SAW")
 
     df_saw_norm = df.copy()
 
@@ -148,7 +148,7 @@ if st.button("Hitung SAW dan TOPSIS"):
     st.dataframe(df_saw_norm_display[kriteria])
 
     # --- Nilai Akhir SAW ---
-    st.subheader("4️⃣ Nilai Akhir SAW dan Ranking")
+    st.subheader("Nilai Akhir SAW dan Ranking")
 
     df_saw = df_saw_norm.copy()
     df_saw["Skor_SAW"] = sum(df_saw[c] * bobot[c] for c in kriteria)
@@ -172,20 +172,20 @@ if st.button("Hitung SAW dan TOPSIS"):
     df_t.set_index("Alternatif", inplace=True)   # <-- konsisten mulai sini!
     
     # --- 1. Normalisasi Matriks R ---
-    st.subheader("3️⃣ Matriks Ternormalisasi (R)")
+    st.subheader("Matriks Ternormalisasi (R)")
     
     R = df_t[kriteria].astype(float) / np.sqrt((df_t[kriteria].astype(float)**2).sum())
     st.dataframe(R)
     
     # --- 2. Matriks Ternormalisasi Terbobot (Y) ---
-    st.subheader("4️⃣ Matriks Ternormalisasi Terbobot (Y)")
+    st.subheader("Matriks Ternormalisasi Terbobot (Y)")
     
     bobot_array = np.array(list(bobot.values()))
     Y = R * bobot_array
     st.dataframe(Y)
     
     # --- 3. Solusi Ideal Positif dan Negatif ---
-    st.subheader("5️⃣ Solusi Ideal Positif (A+) dan Negatif (A-)")
+    st.subheader("Solusi Ideal Positif (A+) dan Negatif (A-)")
     
     A_plus = []
     A_minus = []
@@ -205,7 +205,7 @@ if st.button("Hitung SAW dan TOPSIS"):
     st.dataframe(A_minus_df)
     
     # --- 4. Jarak S+ dan S- ---
-    st.subheader("6️⃣ Jarak ke Solusi Ideal")
+    st.subheader("Jarak ke Solusi Ideal")
     
     S_plus = np.sqrt(((Y - A_plus)**2).sum(axis=1))
     S_minus = np.sqrt(((Y - A_minus)**2).sum(axis=1))
@@ -218,7 +218,7 @@ if st.button("Hitung SAW dan TOPSIS"):
     st.dataframe(df_distance)
     
     # --- 5. Preferensi C+ dan Ranking ---
-    st.subheader("7️⃣ Nilai Preferensi (C+) dan Ranking")
+    st.subheader("Nilai Preferensi (C+) dan Ranking")
     
     C_plus = S_minus / (S_plus + S_minus)
     
