@@ -3,174 +3,137 @@ import pandas as pd
 import numpy as np
 
 st.set_page_config(page_title="SAW & TOPSIS Cloud Storage", layout="wide")
+st.title("Analisis Metode SAW & TOPSIS untuk Pemilihan Cloud Storage")
 
-st.title("Analisis Perbandingan SAW & TOPSIS untuk Pemilihan Cloud Storage")
+# ============================================================
+# 1. DEFINISI KRITERIA (Fixed)
+# ============================================================
+kriteria = ["C1", "C2", "C3", "C4", "C5"]
+nama_kriteria = {
+    "C1": "Biaya Penyimpanan",
+    "C2": "Biaya Egress",
+    "C3": "Latency / Kecepatan Akses",
+    "C4": "Skalabilitas & Integrasi",
+    "C5": "Keamanan & Compliance"
+}
+atribut = {"C1": "cost", "C2": "cost", "C3": "benefit", "C4": "benefit", "C5": "benefit"}
+bobot = {"C1": 0.25, "C2": 0.20, "C3": 0.20, "C4": 0.15, "C5": 0.20}
 
-# -----------------------------
-# Fixed Kriteria, Bobot, Atribut
-# -----------------------------
-kriteria = ["C1 - Biaya Penyimpanan",
-            "C2 - Biaya Egress",
-            "C3 - Latency / Kecepatan Akses",
-            "C4 - Skalabilitas & Kemudahan Integrasi",
-            "C5 - Keamanan & Compliance"]
+# ============================================================
+# 2. TABEL CRIPS
+# ============================================================
+def konversi_crips(kode, nilai):
+    # C1 Biaya penyimpanan
+    if kode == "C1":
+        if nilai > 0.025: return 40
+        if nilai <= 0.025 and nilai > 0.015: return 60
+        if nilai <= 0.015 and nilai > 0.005: return 80
+        if nilai <= 0.005: return 100
 
-atribut = ["cost", "cost", "benefit", "benefit", "benefit"]
-bobot = np.array([0.25, 0.20, 0.20, 0.15, 0.20])
+    # C2 Biaya Egress
+    if kode == "C2":
+        if nilai > 0.10: return 40
+        if nilai <= 0.10 and nilai > 0.05: return 60
+        if nilai <= 0.05 and nilai > 0.01: return 80
+        if nilai <= 0.01: return 100
 
-# Mapping kategori ke angka
-map_C4 = {
-    "Rendah": 1,
-    "Sedang": 2,
-    "Baik": 3,
-    "Sangat Baik": 4
+    # C3 Latency
+    if kode == "C3":
+        if nilai > 50: return 40
+        if 31 <= nilai <= 50: return 60
+        if 21 <= nilai <= 30: return 80
+        if nilai <= 20: return 100
+
+    return None
+
+map_kategori = {
+    "Rendah": 40,
+    "Sedang": 60,
+    "Baik": 80,
+    "Sangat Baik": 100
 }
 
-map_C5 = {
-    "Kurang": 1,
-    "Cukup": 2,
-    "Baik": 3,
-    "Sangat Baik": 4
-}
+# ============================================================
+# INPUT JUMLAH ALTERNATIF
+# ============================================================
+st.subheader("Input Alternatif yang Akan Dianalisis")
 
-# -----------------------------
-# Input jumlah alternatif
-# -----------------------------
-st.header("Input Alternatif")
-jumlah_alternatif = st.number_input("Jumlah Alternatif (maksimal 5)", min_value=1, max_value=5, value=3)
+jumlah_alt = st.selectbox("Jumlah Alternatif:", [1, 2, 3, 4, 5], index=4)
 
-nama_alternatif = []
-for i in range(jumlah_alternatif):
-    nama = st.text_input(f"Nama Alternatif A{i+1}", value=f"Alternatif {i+1}")
-    nama_alternatif.append(nama)
+# DataFrame penampung
+data_input = []
 
-st.write("---")
+for i in range(jumlah_alt):
+    st.markdown(f"### Alternatif A{i+1}")
+    nama = st.text_input(f"Nama Alternatif A{i+1}", key=f"nama_{i}")
 
-# -----------------------------
-# Input Nilai Kriteria
-# -----------------------------
-st.header("Input Nilai Setiap Kriteria")
-data = []
+    c1 = st.number_input(f"C1 Biaya Penyimpanan ($/GB)", min_value=0.0, key=f"c1_{i}")
+    c2 = st.number_input(f"C2 Biaya Egress ($/GB)", min_value=0.0, key=f"c2_{i}")
+    c3 = st.number_input(f"C3 Latency (ms)", min_value=0.0, key=f"c3_{i}")
 
-for i in range(jumlah_alternatif):
-    st.subheader(nama_alternatif[i])
-    nilai = []
+    c4 = st.selectbox("C4 Skalabilitas & Kemudahan Integrasi", ["Rendah", "Sedang", "Baik", "Sangat Baik"], key=f"c4_{i}")
+    c5 = st.selectbox("C5 Keamanan & Compliance", ["Kurang", "Cukup", "Baik", "Sangat Baik"], key=f"c5_{i}")
 
-    # C1
-    c1 = st.number_input(f"Masukkan nilai untuk C1 - Biaya Penyimpanan", min_value=0.0, value=1.0, key=f"{i}-c1")
-    nilai.append(c1)
+    data_input.append([
+        nama,
+        konversi_crips("C1", c1),
+        konversi_crips("C2", c2),
+        konversi_crips("C3", c3),
+        map_kategori[c4],
+        map_kategori[c5]
+    ])
 
-    # C2
-    c2 = st.number_input(f"Masukkan nilai untuk C2 - Biaya Egress", min_value=0.0, value=1.0, key=f"{i}-c2")
-    nilai.append(c2)
+# ============================================================
+# HITUNG SAW & TOPSIS
+# ============================================================
+if st.button("Hitung SAW dan TOPSIS"):
+    df = pd.DataFrame(data_input, columns=["Alternatif", "C1", "C2", "C3", "C4", "C5"])
+    st.subheader("📌 Nilai Crips")
+    st.dataframe(df)
 
-    # C3
-    c3 = st.number_input(f"Masukkan nilai untuk C3 - Latency/Kecepatan Akses", min_value=0.0, value=1.0, key=f"{i}-c3")
-    nilai.append(c3)
-
-    # C4 → dropdown
-    c4 = st.selectbox(
-        "Pilih kategori untuk C4 - Skalabilitas & Kemudahan Integrasi",
-        list(map_C4.keys()),
-        key=f"{i}-c4"
-    )
-    nilai.append(map_C4[c4])
-
-    # C5 → dropdown
-    c5 = st.selectbox(
-        "Pilih kategori untuk C5 - Keamanan & Compliance",
-        list(map_C5.keys()),
-        key=f"{i}-c5"
-    )
-    nilai.append(map_C5[c5])
-
-    data.append(nilai)
-
-data = np.array(data)
-df_data = pd.DataFrame(data, columns=kriteria, index=nama_alternatif)
-
-st.write("### Tabel Input")
-st.dataframe(df_data)
-
-st.write("---")
-
-
-# ============================
-# ====== METODE SAW ==========
-# ============================
-def normalisasi_saw(data, atribut):
-    norm = np.zeros_like(data)
-    for j in range(data.shape[1]):
-        if atribut[j] == "benefit":
-            norm[:, j] = data[:, j] / data[:, j].max()
+    # --------------------------------------------------------
+    # SAW NORMALISASI
+    # --------------------------------------------------------
+    df_saw = df.copy()
+    for c in kriteria:
+        if atribut[c] == "benefit":
+            df_saw[c] = df[c] / df[c].max()
         else:  # cost
-            norm[:, j] = data[:, j].min() / data[:, j]
-    return norm
+            df_saw[c] = df[c].min() / df[c]
 
-norm_saw = normalisasi_saw(data, atribut)
-hasil_saw = norm_saw.dot(bobot)
-df_saw = pd.DataFrame({
-    "Alternatif": nama_alternatif,
-    "Nilai SAW": hasil_saw
-}).sort_values("Nilai SAW", ascending=False)
+    # hitung skor akhir
+    df_saw["Skor_SAW"] = sum(df_saw[c] * bobot[c] for c in kriteria)
+    df_saw = df_saw.sort_values("Skor_SAW", ascending=False)
 
+    st.subheader("📊 Hasil SAW")
+    st.dataframe(df_saw[["Alternatif", "Skor_SAW"]])
 
-# ============================
-# ===== METODE TOPSIS ========
-# ============================
-def topsis(data, atribut, bobot):
-    # Normalisasi
-    norm = data / np.sqrt((data**2).sum(axis=0))
+    # --------------------------------------------------------
+    # TOPSIS
+    # --------------------------------------------------------
+    df_t = df.copy()
+    R = df_t[kriteria] / np.sqrt((df_t[kriteria]**2).sum())
 
-    # Pembobotan
-    y = norm * bobot
+    # bobot
+    V = R * np.array(list(bobot.values()))
 
-    # Ideal positif & negatif
-    ideal_plus = np.zeros(data.shape[1])
-    ideal_minus = np.zeros(data.shape[1])
+    ideal_plus = []
+    ideal_minus = []
 
-    for j in range(data.shape[1]):
-        if atribut[j] == "benefit":
-            ideal_plus[j] = y[:, j].max()
-            ideal_minus[j] = y[:, j].min()
+    for i, c in enumerate(kriteria):
+        if atribut[c] == "benefit":
+            ideal_plus.append(V[c].max())
+            ideal_minus.append(V[c].min())
         else:
-            ideal_plus[j] = y[:, j].min()
-            ideal_minus[j] = y[:, j].max()
+            ideal_plus.append(V[c].min())
+            ideal_minus.append(V[c].max())
 
-    # Jarak
-    D_plus = np.sqrt(((y - ideal_plus)**2).sum(axis=1))
-    D_minus = np.sqrt(((y - ideal_minus)**2).sum(axis=1))
+    D_plus = np.sqrt(((V - ideal_plus)**2).sum(axis=1))
+    D_minus = np.sqrt(((V - ideal_minus)**2).sum(axis=1))
 
-    # Nilai preferensi
-    V = D_minus / (D_plus + D_minus)
-    return V
+    preferensi = D_minus / (D_plus + D_minus)
+    df_t["Skor_TOPSIS"] = preferensi
+    df_t = df_t.sort_values("Skor_TOPSIS", ascending=False)
 
-hasil_topsis = topsis(data, atribut, bobot)
-
-df_topsis = pd.DataFrame({
-    "Alternatif": nama_alternatif,
-    "Nilai TOPSIS": hasil_topsis
-}).sort_values("Nilai TOPSIS", ascending=False)
-
-
-# -----------------------------
-# TAMPILKAN HASIL
-# -----------------------------
-st.header("Hasil Perhitungan SAW")
-st.dataframe(df_saw)
-
-st.header("Hasil Perhitungan TOPSIS")
-st.dataframe(df_topsis)
-
-# -----------------------------
-# Rangking Gabungan (opsional)
-# -----------------------------
-ranking_final = pd.DataFrame({
-    "Alternatif": nama_alternatif,
-    "SAW": hasil_saw,
-    "TOPSIS": hasil_topsis,
-    "Rata-rata Ranking": (hasil_saw + hasil_topsis) / 2
-}).sort_values("Rata-rata Ranking", ascending=False)
-
-st.header("Rangking Akhir (Gabungan SAW & TOPSIS)")
-st.dataframe(ranking_final)
+    st.subheader("📊 Hasil TOPSIS")
+    st.dataframe(df_t[["Alternatif", "Skor_TOPSIS"]])
