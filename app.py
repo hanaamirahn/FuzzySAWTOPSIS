@@ -1,288 +1,319 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import io
 import matplotlib.pyplot as plt
+from math import sqrt
 
-st.set_page_config(page_title="Analisis SAW vs TOPSIS (Fuzzy→Defuzz)", layout="wide")
+st.set_page_config(page_title="Fuzzy SAW & TOPSIS - Cloud Storage", layout="wide")
 
-st.title("Analisis Perbandingan Metode SAW dan TOPSIS\nuntuk Pemilihan Layanan Cloud Storage")
-st.markdown(
-    """
-Aplikasi ini menerima alternatif (nama) dan nilai kriteria (angka atau nilai linguistik),
-melakukan *fuzzification* sederhana + *defuzzification* (centroid), lalu menghitung
-peringkat menggunakan SAW dan TOPSIS.
-"""
-)
+st.title("Analisis Perbandingan: SAW & TOPSIS (Fuzzy) \nPemilihan Layanan Cloud Storage")
+st.write("Aplikasi Streamlit untuk menghitung dan membandingkan alternatif menggunakan metode Fuzzy SAW dan Fuzzy TOPSIS.")
 
-# -------------------------
-# Kriteria (fixed sesuai permintaan user)
-# -------------------------
-criteria = [
-    {"code": "C1", "name": "Biaya penyimpanan", "type": "cost", "weight": 0.25},
-    {"code": "C2", "name": "Biaya Egress", "type": "cost", "weight": 0.20},
-    {"code": "C3", "name": "Latency / Kecepatan Akses", "type": "benefit", "weight": 0.20},
-    {"code": "C4", "name": "Skalabilitas & Kemudahan Integrasi", "type": "benefit", "weight": 0.15},
-    {"code": "C5", "name": "Keamanan & Compliance", "type": "benefit", "weight": 0.20},
-]
-crit_codes = [c["code"] for c in criteria]
-crit_names = [c["name"] for c in criteria]
-weights = np.array([c["weight"] for c in criteria])
-types = [c["type"] for c in criteria]
-
-st.sidebar.header("Pengaturan")
-n_alt = st.sidebar.number_input("Jumlah alternatif", min_value=2, max_value=20, value=5, step=1)
-
-# Linguistic scale contoh
-linguistic_options = [
-    "Sangat Rendah", "Rendah", "Sedang", "Tinggi", "Sangat Tinggi"
+# Fixed criteria metadata
+CRITERIA = [
+    {"kode": "C1", "nama": "Biaya penyimpanan", "atribut": "Cost", "bobot": 0.25},
+    {"kode": "C2", "nama": "Biaya Egress", "atribut": "Cost", "bobot": 0.20},
+    {"kode": "C3", "nama": "Latency / Kecepatan Akses", "atribut": "Benefit", "bobot": 0.20},
+    {"kode": "C4", "nama": "Skalabilitas & Kemudahan Integrasi", "atribut": "Benefit", "bobot": 0.15},
+    {"kode": "C5", "nama": "Keamanan & Compliance", "atribut": "Benefit", "bobot": 0.20},
 ]
 
-st.sidebar.markdown("**Input style**: Anda bisa memasukkan nilai numerik (mis. 10, 200) atau\npilih nilai linguistik (mis. 'Sedang').\nJika teks linguistik digunakan, akan di-*fuzzify* dan di-defuzzify otomatis.")
+WEIGHTS = np.array([c['bobot'] for c in CRITERIA])
+ATTRIBUTES = [c['atribut'] for c in CRITERIA]
+CR_NAMES = [c['nama'] for c in CRITERIA]
+CR_CODES = [c['kode'] for c in CRITERIA]
 
-# -------------------------
-# Mapping linguistik ke TFN (0..1 scale)
-# -------------------------
-# TFN triangular: (l, m, u) dalam skala 0..1
-LINGUISTIC_TO_TFN = {
-    "Sangat Rendah": (0.0, 0.0, 0.25),
-    "Rendah":        (0.0, 0.25, 0.5),
-    "Sedang":        (0.25, 0.5, 0.75),
-    "Tinggi":        (0.5, 0.75, 1.0),
-    "Sangat Tinggi": (0.75, 1.0, 1.0),
+st.sidebar.header("Pengaturan Input")
+num_alt = st.sidebar.number_input("Jumlah alternatif (provider)", min_value=2, max_value=12, value=5, step=1)
+
+input_mode = st.sidebar.selectbox("Mode input nilai", ["Angka (kritis: nilai numerik)", "Linguistic (Very Low..Very High)"])
+
+# Default providers (common cloud storage)
+default_providers(n):
+    default = ["Amazon S3", "Google Cloud Storage", "Azure Blob Storage", "Backblaze B2", "Wasabi Hot Cloud Storage"]
+    out = []
+    for i in range(n):
+        if i < len(default):
+            out.append(default[i])
+        else:
+            out.append(f"Alternatif {i+1}")
+    return out
+
+alts = st.sidebar.text_area("Nama alternatif, pisahkan tiap baris (atau biarkan default)", "\n".join(default_providers(num_alt)))
+alt_list = [a.strip() for a in alts.splitlines() if a.strip()][:num_alt]
+if len(alt_list) < num_alt:
+    # pad
+    alt_list += [f"Alternatif {i+1}" for i in range(len(alt_list), num_alt)]
+
+st.subheader("Data Input Alternatif")
+st.write("Masukkan nilai untuk setiap alternatif pada masing-masing kriteria. Jika memilih mode linguistik, pilih label untuk tiap sel.")
+
+# Linguistic scale -> triangular fuzzy numbers (l,m,u)
+LINGUISTIC_SCALE = {
+    "VL": (0.0, 0.0, 0.25),  # Very Low
+    "L": (0.0, 0.25, 0.5),
+    "M": (0.25, 0.5, 0.75),
+    "H": (0.5, 0.75, 1.0),
+    "VH": (0.75, 1.0, 1.0),
 }
+LINGUISTIC_LABELS = {"Very Low": "VL", "Low": "L", "Medium": "M", "High": "H", "Very High": "VH"}
 
-def is_number(x):
+# Build input DataFrame structure
+if input_mode.startswith("Angka"):
+    # numeric input table with default placeholders
+    default_vals = {
+        'C1 (Cost - lower is better)': [0.02, 0.03, 0.025, 0.01, 0.015][:num_alt],
+        'C2 (Cost - lower is better)': [0.01, 0.02, 0.02, 0.015, 0.01][:num_alt],
+        'C3 (Benefit - higher is better)': [80, 70, 75, 60, 65][:num_alt],
+        'C4 (Benefit - higher is better)': [8, 7, 7.5, 6, 6.5][:num_alt],
+        'C5 (Benefit - higher is better)': [9, 8.5, 8.8, 7.5, 8][:num_alt],
+    }
+    df_input = pd.DataFrame(default_vals, index=alt_list)
+    edited = st.experimental_data_editor(df_input, num_rows="dynamic")
+    # validation: convert to numeric
     try:
-        float(x)
-        return True
-    except:
-        return False
+        matrix = edited.astype(float).values
+    except Exception:
+        st.error("Semua nilai harus numerik pada mode Angka. Perbaiki input Anda.")
+        st.stop()
+else:
+    # Linguistic mode: provide selectboxes per cell
+    st.write("Gunakan label linguistik: Very Low, Low, Medium, High, Very High")
+    cols = st.columns(len(CRITERIA))
+    data = {cr['kode']: [] for cr in CRITERIA}
+    for i, alt in enumerate(alt_list):
+        row_vals = []
+        for j, cr in enumerate(CRITERIA):
+            key = f"{alt}_C{j}"
+            val = cols[j].selectbox(f"{alt} - {cr['kode']}", options=list(LINGUISTIC_LABELS.keys()), key=key, index=2)
+            data[cr['kode']].append(LINGUISTIC_LABELS[val])
+    # Build matrix of triangular numbers
+    # We'll keep both labels and triangular fuzzy numbers later
+    df_labels = pd.DataFrame({f"{c['kode']}": data[c['kode']] for c in CRITERIA}, index=alt_list)
+    st.table(df_labels)
+    matrix = None  # will build fuzzy matrix below
 
-def defuzzify_tfn(tfn):
-    # simple centroid defuzzification for triangular fuzzy numbers
-    l, m, u = tfn
-    return (l + m + u) / 3.0
+# Helper: triangular fuzzy number operations
+class TFN:
+    def __init__(self, l, m, u):
+        self.l = float(l)
+        self.m = float(m)
+        self.u = float(u)
+    def __repr__(self):
+        return f"({self.l:.3f},{self.m:.3f},{self.u:.3f})"
 
-# -------------------------
-# Create editable input table
-# -------------------------
-st.header("1) Input Alternatif dan Nilai Kriteria")
-st.caption("Masukkan nama alternatif lalu untuk setiap kriteria isi nilai (angka atau linguistik).")
+def tfn_add(a: TFN, b: TFN):
+    return TFN(a.l + b.l, a.m + b.m, a.u + b.u)
 
-# Prepare default dataframe
-default_rows = []
+def tfn_mul_scalar(a: TFN, k: float):
+    return TFN(a.l * k, a.m * k, a.u * k)
+
+def tfn_div(a: TFN, b: TFN):
+    # divide a by b (approx): use pointwise division of vertices (assuming positive)
+    return TFN(a.l / b.u, a.m / b.m, a.u / b.l)
+
+def defuzzify_centroid(a: TFN):
+    return (a.l + a.m + a.u) / 3.0
+
+def tfn_distance(a: TFN, b: TFN):
+    # Euclidean distance between two triangular fuzzy numbers (vertex method)
+    return sqrt((1.0/3.0) * ((a.l - b.l)**2 + (a.m - b.m)**2 + (a.u - b.u)**2))
+
+# Construct fuzzy decision matrix
+if input_mode.startswith("Angka"):
+    # Convert crisp numeric matrix to fuzzy triangular numbers by attaching small spread
+    # For costs and benefits we normalize differently later; here we convert each crisp x to (x*0.95, x, x*1.05)
+    fuzz_matrix = []
+    for i in range(len(alt_list)):
+        row = []
+        for j in range(len(CRITERIA)):
+            x = float(matrix[i, j])
+            if x < 0:
+                st.warning("Nilai negatif ditemukan; konversi fuzzy menggunakan spread absolut. Pastikan data benar.")
+            row.append(TFN(0.95*x, x, 1.05*x))
+        fuzz_matrix.append(row)
+else:
+    # linguistic -> map to normalized triangular numbers from LINGUISTIC_SCALE
+    fuzz_matrix = []
+    for i in range(len(alt_list)):
+        row = []
+        for j in range(len(CRITERIA)):
+            lab = df_labels.iloc[i, j]  # code like 'M','H'
+            tri = LINGUISTIC_SCALE[lab]
+            row.append(TFN(*tri))
+        fuzz_matrix.append(row)
+
+# Normalization for fuzzy numbers
+# For benefit criteria: r_ij = a_ij / a_j_max
+# For cost criteria: r_ij = a_j_min / a_ij
+
+def fuzzy_max_per_col(matrix):
+    # max by upper value
+    n = len(matrix)
+    m = len(matrix[0])
+    cols = []
+    for j in range(m):
+        max_u = max(matrix[i][j].u for i in range(n))
+        cols.append(max_u)
+    return cols
+
+def fuzzy_min_per_col(matrix):
+    n = len(matrix)
+    m = len(matrix[0])
+    cols = []
+    for j in range(m):
+        min_l = min(matrix[i][j].l for i in range(n))
+        cols.append(min_l)
+    return cols
+
+n_alt = len(alt_list)
+
+# compute normalized fuzzy decision matrix
+fuzzy_norm = [[None]*len(CRITERIA) for _ in range(n_alt)]
+max_u = fuzzy_max_per_col(fuzz_matrix)
+min_l = fuzzy_min_per_col(fuzz_matrix)
+
+for j, attr in enumerate(ATTRIBUTES):
+    for i in range(n_alt):
+        aij = fuzz_matrix[i][j]
+        if attr == 'Benefit':
+            # r = aij / max_u_j  => TFN division by crisp max
+            denom = TFN(max_u[j], max_u[j], max_u[j])
+            fuzzy_norm[i][j] = tfn_div(aij, denom)
+        else:
+            # Cost: r = min_l_j / aij
+            numer = TFN(min_l[j], min_l[j], min_l[j])
+            fuzzy_norm[i][j] = tfn_div(numer, aij)
+
+# Apply weights
+weighted_fuzzy = [[None]*len(CRITERIA) for _ in range(n_alt)]
 for i in range(n_alt):
-    name = f"Alt-{i+1}"
-    row = {"Alternatif": name}
-    # fill with default linguistic 'Sedang'
-    for code in crit_codes:
-        row[code] = "Sedang"
-    default_rows.append(row)
+    for j in range(len(CRITERIA)):
+        w = WEIGHTS[j]
+        weighted_fuzzy[i][j] = tfn_mul_scalar(fuzzy_norm[i][j], w)
 
-if "df_inputs" not in st.session_state or st.session_state.get("last_n_alt", None) != n_alt:
-    st.session_state["df_inputs"] = pd.DataFrame(default_rows)
-    st.session_state["last_n_alt"] = n_alt
+# --- FUZZY SAW ---
+# Aggregate by summing weighted criteria
+fuzzy_saw_agg = []
+score_saw_defuzz = []
+for i in range(n_alt):
+    s = TFN(0,0,0)
+    for j in range(len(CRITERIA)):
+        s = tfn_add(s, weighted_fuzzy[i][j])
+    fuzzy_saw_agg.append(s)
+    score_saw_defuzz.append(defuzzify_centroid(s))
 
-# Allow editing
-df_inputs = st.experimental_data_editor(st.session_state["df_inputs"], num_rows="dynamic")
-st.session_state["df_inputs"] = df_inputs
+# Ranking for SAW
+saw_ranking_idx = np.argsort(score_saw_defuzz)[::-1]
 
-# -------------------------
-# Preprocess inputs: convert to numeric by defuzzifying when needed
-# -------------------------
-def parse_cell(val):
-    # if numeric string or number -> return numeric
-    if pd.isna(val):
-        return np.nan
-    if isinstance(val, (int, float, np.number)):
-        return float(val)
-    s = str(val).strip()
-    if is_number(s):
-        return float(s)
-    # try to map linguistic
-    if s in LINGUISTIC_TO_TFN:
-        return defuzzify_tfn(LINGUISTIC_TO_TFN[s])
-    # try case-insensitive match
-    for k in LINGUISTIC_TO_TFN:
-        if s.lower() == k.lower():
-            return defuzzify_tfn(LINGUISTIC_TO_TFN[k])
-    # fallback: NaN
-    return np.nan
-
-# Build decision matrix (defuzzified numeric between 0..1 ideally)
-D = []
-names = []
-for idx, row in df_inputs.fillna("").iterrows():
-    names.append(row.get("Alternatif", f"Alt-{idx+1}"))
-    values = []
-    for code in crit_codes:
-        raw = row.get(code, "")
-        val = parse_cell(raw)
-        values.append(val)
-    D.append(values)
-D = np.array(D, dtype=float)  # shape (n_alt, n_crit)
-
-# If any NaN present, show a warning and stop calc until fixed
-if np.isnan(D).any():
-    st.warning("Terdapat nilai kosong atau nilai yang tidak dikenali. Pastikan semua sel kriteria diisi dengan angka atau nilai linguistik yang valid (contoh: 'Sedang').")
-    st.stop()
-
-# Note: since many cost inputs (harga) might be in different scales (e.g., IDR), we assume user either:
-# - enters normalized values (0..1) OR
-# - enters raw numbers (like IDR) but mixed numeric with others -> we'll normalize per criterion below.
-
-# -------------------------
-# Normalize input numeric matrix to comparable scale
-# Approach: For each criterion:
-#   - If users entered values mostly within [0,1], keep.
-#   - Otherwise do min-max normalization to 0..1 (per criterion).
-# Then apply cost/benefit transformations for SAW/TOPSIS as needed.
-# -------------------------
-st.header("2) Proses Perhitungan")
-st.markdown("Menormalkan data per kriteria (min-max => 0..1). Jika Anda sudah memasukkan nilai 0..1, hasilnya akan tetap sama.")
-
-# Min-max normalize per column
-D_norm = np.zeros_like(D)
-for j in range(D.shape[1]):
-    col = D[:, j]
-    cmin, cmax = np.min(col), np.max(col)
-    if np.isclose(cmax, cmin):
-        # flat column -> set to 1.0 (no discrimination)
-        D_norm[:, j] = 1.0
+# --- FUZZY TOPSIS ---
+# Positive ideal (PIS): for benefit - max of u, for cost - min of l  BUT we need TFN PIS and NIS per criterion
+pis = []
+nis = []
+for j, attr in enumerate(ATTRIBUTES):
+    if attr == 'Benefit':
+        # PIS = max of upper among weighted normalized
+        max_u = max(weighted_fuzzy[i][j].u for i in range(n_alt))
+        max_m = max(weighted_fuzzy[i][j].m for i in range(n_alt))
+        max_l = max(weighted_fuzzy[i][j].l for i in range(n_alt))
+        pis.append(TFN(max_l, max_m, max_u))
+        min_u = min(weighted_fuzzy[i][j].u for i in range(n_alt))
+        min_m = min(weighted_fuzzy[i][j].m for i in range(n_alt))
+        min_l = min(weighted_fuzzy[i][j].l for i in range(n_alt))
+        nis.append(TFN(min_l, min_m, min_u))
     else:
-        D_norm[:, j] = (col - cmin) / (cmax - cmin)
+        # Cost: ideal is minimum
+        min_l = min(weighted_fuzzy[i][j].l for i in range(n_alt))
+        min_m = min(weighted_fuzzy[i][j].m for i in range(n_alt))
+        min_u = min(weighted_fuzzy[i][j].u for i in range(n_alt))
+        pis.append(TFN(min_l, min_m, min_u))
+        max_l = max(weighted_fuzzy[i][j].l for i in range(n_alt))
+        max_m = max(weighted_fuzzy[i][j].m for i in range(n_alt))
+        max_u = max(weighted_fuzzy[i][j].u for i in range(n_alt))
+        nis.append(TFN(max_l, max_m, max_u))
 
-# For cost criteria: lower is better; for normalization we will invert for benefit sense when required.
-# But for SAW we will use standard benefit/cost formulas; for TOPSIS we do vector normalization.
-st.write("Contoh nilai (setelah defuzzifikasi awal dan normalisasi min-max):")
-df_norm_example = pd.DataFrame(D_norm, columns=crit_codes)
-df_norm_example.insert(0, "Alternatif", names)
-st.dataframe(df_norm_example.style.format({c: "{:.3f}" for c in crit_codes}), height=240)
+# Distances to PIS and NIS
+d_pos = []
+d_neg = []
+for i in range(n_alt):
+    sum_pos = 0.0
+    sum_neg = 0.0
+    for j in range(len(CRITERIA)):
+        sum_pos += tfn_distance(weighted_fuzzy[i][j], pis[j])**2
+        sum_neg += tfn_distance(weighted_fuzzy[i][j], nis[j])**2
+    dpos = sqrt(sum_pos)
+    dneg = sqrt(sum_neg)
+    d_pos.append(dpos)
+    d_neg.append(dneg)
 
-# -------------------------
-# SAW (Simple Additive Weighting)
-# Implementation after defuzzification and min-max normalization:
-# For SAW we need normalization that respects cost/benefit:
-#  - benefit: r_ij = x_ij / max_j
-#  - cost:    r_ij = min_j / x_ij  (but if x_j normalized to 0..1, better to use 1 - normalized)
-# To keep consistency, we will operate on original defuzzified D (not D_norm),
-# using a robust approach: if criterion is benefit -> r = x / max; if cost -> r = min / x (but guard zeros).
-# However since we already min-maxed to D_norm 0..1, use:
-#  - benefit: r = D_norm
-#  - cost: r = 1 - D_norm
-# -------------------------
-def compute_saw_scores(D_norm, weights, types):
-    # D_norm range 0..1
-    R = np.copy(D_norm)
-    for j, t in enumerate(types):
-        if t == "cost":
-            R[:, j] = 1.0 - R[:, j]
-    # weighted sum
-    scores = R.dot(weights)
-    return scores, R
+cc = []
+for i in range(n_alt):
+    denom = d_pos[i] + d_neg[i]
+    if denom == 0:
+        cc.append(0)
+    else:
+        cc.append(d_neg[i] / denom)
 
-saw_scores, saw_R = compute_saw_scores(D_norm, weights, types)
+topsis_ranking_idx = np.argsort(cc)[::-1]
 
-# -------------------------
-# TOPSIS
-# Steps (classical) using defuzzified numeric values (we already normalized to 0..1 so we can:
-# Option A: apply vector normalization (divide by sqrt(sum squares) on original defuzzified D)
-# We'll use vector normalization on original defuzzified values (D) for TOPSIS.
-# -------------------------
-def compute_topsis(D_raw, weights, types):
-    # vector normalization
-    denom = np.sqrt(np.sum(D_raw ** 2, axis=0))
-    # avoid division by zero
-    denom[denom == 0] = 1e-9
-    Rv = D_raw / denom
-    # Apply criterion type: for cost, smaller is better — but we handle ideal/bad properly below
-    # Weighted normalized matrix
-    W = weights
-    V = Rv * W
-    # ideal best and ideal worst
-    ideal_best = np.zeros(V.shape[1])
-    ideal_worst = np.zeros(V.shape[1])
-    for j, t in enumerate(types):
-        if t == "benefit":
-            ideal_best[j] = np.max(V[:, j])
-            ideal_worst[j] = np.min(V[:, j])
-        else:  # cost
-            ideal_best[j] = np.min(V[:, j])   # for cost, best is minimum (lower cost)
-            ideal_worst[j] = np.max(V[:, j])
-    # distances
-    dist_best = np.sqrt(np.sum((V - ideal_best) ** 2, axis=1))
-    dist_worst = np.sqrt(np.sum((V - ideal_worst) ** 2, axis=1))
-    # closeness coefficient
-    cc = dist_worst / (dist_best + dist_worst + 1e-12)
-    return cc, V, ideal_best, ideal_worst, dist_best, dist_worst
+# Show results
+st.subheader("Hasil Perhitungan")
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown("**Fuzzy SAW - Nilai Agregat (Triangular TFN) & Defuzzified Score**")
+    saw_df = pd.DataFrame({
+        'Alternatif': alt_list,
+        'TFN (l,m,u)': [str(t) for t in fuzzy_saw_agg],
+        'Defuzzified Score': score_saw_defuzz
+    })
+    saw_df = saw_df.sort_values('Defuzzified Score', ascending=False).reset_index(drop=True)
+    st.dataframe(saw_df)
+    st.markdown("**Ranking SAW**")
+    for i, r in enumerate(saw_df['Alternatif']):
+        st.write(f"{i+1}. {r} (score: {saw_df.loc[i,'Defuzzified Score']:.4f})")
 
-topsis_scores, V_mat, ideal_best, ideal_worst, db, dw = compute_topsis(D, weights, types)
+with col2:
+    st.markdown("**Fuzzy TOPSIS - Closeness Coefficient (CC)**")
+    topsis_df = pd.DataFrame({
+        'Alternatif': alt_list,
+        'D+ (to PIS)': d_pos,
+        'D- (to NIS)': d_neg,
+        'Closeness Coef (CC)': cc
+    })
+    topsis_df = topsis_df.sort_values('Closeness Coef (CC)', ascending=False).reset_index(drop=True)
+    st.dataframe(topsis_df)
+    st.markdown("**Ranking TOPSIS**")
+    for i, r in enumerate(topsis_df['Alternatif']):
+        st.write(f"{i+1}. {r} (CC: {topsis_df.loc[i,'Closeness Coef (CC)']:.4f})")
 
-# -------------------------
-# Combine results and show
-# -------------------------
-results_df = pd.DataFrame({
-    "Alternatif": names,
-    "SAW_Score": saw_scores,
-    "TOPSIS_Score": topsis_scores
+# Combined comparison
+st.subheader("Perbandingan Ranking SAW vs TOPSIS")
+combined = pd.DataFrame({
+    'Alternatif': alt_list,
+    'SAW Score': score_saw_defuzz,
+    'SAW Rank': np.argsort(score_saw_defuzz)[::-1] + 1,
+    'TOPSIS CC': cc,
+    'TOPSIS Rank': np.argsort(cc)[::-1] + 1
 })
-results_df["SAW_Rank"] = results_df["SAW_Score"].rank(ascending=False, method="min").astype(int)
-results_df["TOPSIS_Rank"] = results_df["TOPSIS_Score"].rank(ascending=False, method="min").astype(int)
-results_df = results_df.sort_values(by=["TOPSIS_Score"], ascending=False).reset_index(drop=True)
+combined = combined.sort_values('SAW Rank')
+st.dataframe(combined)
 
-st.header("3) Hasil dan Peringkat")
-st.markdown("Tabel di bawah menunjukkan skor dan peringkat dari setiap metode.")
-st.dataframe(results_df.style.format({
-    "SAW_Score": "{:.4f}", "TOPSIS_Score": "{:.4f}"
-}), height=300)
-
-# Show bar charts side-by-side
-st.subheader("Perbandingan Skor (bar chart)")
-fig, ax = plt.subplots(figsize=(8,4))
-x = np.arange(len(names))
-width = 0.35
-ax.bar(x - width/2, results_df.set_index("Alternatif")["SAW_Score"].loc[names], width=width, label="SAW")
-ax.bar(x + width/2, results_df.set_index("Alternatif")["TOPSIS_Score"].loc[names], width=width, label="TOPSIS")
-ax.set_xticks(x)
-ax.set_xticklabels(names, rotation=45)
-ax.set_ylabel("Nilai")
-ax.legend()
+# Simple bar charts
+st.subheader("Visualisasi Skor & CC")
+fig, ax = plt.subplots()
+ax.bar(alt_list, score_saw_defuzz)
+ax.set_title('Defuzzified SAW Score per Alternatif')
+ax.set_ylabel('Score')
+plt.xticks(rotation=45, ha='right')
 st.pyplot(fig)
 
-# Offer CSV download
-csv_buf = io.StringIO()
-results_df.to_csv(csv_buf, index=False)
-csv_bytes = csv_buf.getvalue().encode('utf-8')
-st.download_button("Unduh Hasil (CSV)", csv_bytes, file_name="hasil_ranking.csv", mime="text/csv")
+fig2, ax2 = plt.subplots()
+ax2.bar(alt_list, cc)
+ax2.set_title('TOPSIS Closeness Coef per Alternatif')
+ax2.set_ylabel('CC')
+plt.xticks(rotation=45, ha='right')
+st.pyplot(fig2)
 
-# -------------------------
-# Additional info / transparency
-# -------------------------
-st.header("Catatan metodologi & asumsi penting (baca sebelum menggunakan hasil)")
-st.markdown(
-    """
-- **Fuzziness**: aplikasi ini memetakan nilai linguistik ke *triangular fuzzy numbers* (TFN) pada skala 0..1, lalu **defuzzifikasi** menggunakan centroid (rata-rata titik TFN) menjadi nilai numerik tunggal.  
-  *Implikasi:* ini menyederhanakan perhitungan (lebih stabil/cepat) tapi **mengurangi** keunggulan penuh metode fuzzy (ketidakpastian dihapus saat defuzzifikasi).
-- **Normalisasi**: untuk SAW saya gunakan `benefit = D_norm` dan `cost = 1 - D_norm` (setelah min-max). Untuk TOPSIS saya gunakan vektor normalisasi (pembagi = sqrt(sum squares)) pada nilai defuzzified asli.  
-- **Bobot**: bobot kriteria tetap sesuai yang Anda berikan. Hati-hati — bobot yang subjektif dapat mengubah peringkat signifikan.
-- **Validasi**: jalankan *sensitivity analysis* (mis. ubah bobot ±10% atau coba seluruh input numerik) untuk mengamati stabilitas peringkat.
-"""
-)
-
-# -------------------------
-# Practical suggestions / next steps (intellectual sparring)
-# -------------------------
-st.header("Saran peningkatan & kritik terhadap asumsi (pendekatan 'sparring intelektual')")
-st.markdown(
-    """
-1. **Asumsi defuzzifikasi centroid**: saya pakai cara sederhana untuk practical use — namun hal ini *membuang* informasi fuzzy.  
-   *Alternatif lebih ketat:* terapkan operasi fuzzy lengkap (penjumlahan, perkalian TFN) untuk SAW/TOPSIS sehingga hasilnya tetap fuzzy, baru lakukan ranking berdasarkan ranking fuzzy (mis. menggunakan peluang/indeks centroid).
-2. **Skala input campuran**: aplikasi sekarang otomatis min-max per kriteria. Jika Anda memasukkan angka nyata (mis. IDR/TB), pertimbangkan standarisasi satuan (semua biaya di IDR/GB-blabla) agar transformasi masuk akal.
-3. **Ketergantungan bobot**: bobot tetap bisa mem-bias hasil. Lakukan uji sensitivitas bobot (panel kontrol untuk mengubah bobot secara interaktif).
-4. **Validasi eksternal**: cocokkan peringkat dengan studi kasus/ground-truth (jika ada) atau bandingkan hasil dua metode untuk identifikasi konsensus.
-5. **Ketidakpastian data**: jika data asli memang sangat tidak pasti (perkiraan kasar), pertimbangkan metode fuzzy penuh atau probabilistic MCDM.
-"""
-)
-
-st.success("Selesai — Anda bisa mengunduh kode (file ini) ke GitHub dan jalankan `streamlit run app.py`.")
+st.markdown("---")
+st.info("Catatan: Implementasi ini menggunakan pendekatan fuzzy sederhana: jika input numerik diberikan, setiap nilai diubah menjadi TFN dengan spread ±5%. Untuk input linguistik, digunakan mapping TFN yang dinormalisasi (0..1). Bobot kriteria yang dipakai adalah bobot crisp yang Anda berikan. Metode normalisasi dan operasi TFN menggunakan pendekatan titik/vertex untuk pembagian dan jarak.")
+st.markdown("Jika Anda mau, saya bisa: (1) menambahkan opsi penyimpanan hasil ke CSV, (2) menyesuaikan skala linguistik, atau (3) menggunakan metode defuzzifikasi lain. Beritahu saya fitur mana yang Anda inginkan selanjutnya.")
