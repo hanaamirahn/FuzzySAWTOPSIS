@@ -211,14 +211,18 @@ if st.button("Hitung SAW dan TOPSIS"):
     S_plus = np.sqrt(((Y - A_plus)**2).sum(axis=1))
     S_minus = np.sqrt(((Y - A_minus)**2).sum(axis=1))
     
+    # Pastikan nama alternatif tidak kosong
+    df["Alternatif"] = df["Alternatif"].replace("", "Alternatif Tanpa Nama")
+    
     df_distance = pd.DataFrame({
         "Alternatif": df["Alternatif"],
         "S+": S_plus,
         "S-": S_minus
     })
     
-    # Tampilkan hanya Alternatif, S+, S-
-    df_distance_display = df_distance[["Alternatif", "S+", "S-"]]
+    # Fix: reset index biar tidak dobel/dan tidak nyampur
+    df_distance_display = df_distance[["Alternatif", "S+", "S-"]].reset_index(drop=True)
+    
     st.dataframe(df_distance_display)
     
     
@@ -234,10 +238,11 @@ if st.button("Hitung SAW dan TOPSIS"):
         "C+": C_plus
     })
     
-    df_topsis = df_topsis.sort_values("C+", ascending=False)
-    df_topsis["Ranking"] = range(1, len(df_topsis) + 1)
+    # Fix: sorting + reset index
+    df_topsis = df_topsis.sort_values("C+", ascending=False).reset_index(drop=True)
     
-    # Tampilkan sesuai format:
-    # Alternatif | S+ | S– | C+ | Ranking
+    # Ranking sesuai urutan C+
+    df_topsis["Ranking"] = df_topsis.index + 1
+    
     df_topsis_display = df_topsis[["Alternatif", "S+", "S-", "C+", "Ranking"]]
     st.dataframe(df_topsis_display)
