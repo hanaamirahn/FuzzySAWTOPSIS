@@ -46,11 +46,20 @@ def konversi_crips(kode, nilai):
 
     return None
 
-map_kategori = {
+map_kategori_C4 = {
     "Rendah": 40,
     "Sedang": 60,
     "Baik": 80,
     "Sangat Baik": 100
+}
+
+map_kategori_C5 = {
+    "Kurang": 40,
+    "Cukup": 60,
+    "Baik": 80,
+    "Sangat Baik": 100
+}
+
 }
 
 # ============================================================
@@ -74,14 +83,15 @@ for i in range(jumlah_alt):
     c4 = st.selectbox("C4 Skalabilitas & Kemudahan Integrasi", ["Rendah", "Sedang", "Baik", "Sangat Baik"], key=f"c4_{i}")
     c5 = st.selectbox("C5 Keamanan & Compliance", ["Kurang", "Cukup", "Baik", "Sangat Baik"], key=f"c5_{i}")
 
-    data_input.append([
-        nama,
-        konversi_crips("C1", c1),
-        konversi_crips("C2", c2),
-        konversi_crips("C3", c3),
-        map_kategori[c4],
-        map_kategori[c5]
-    ])
+data_input.append([
+    nama,
+    konversi_crips("C1", c1),
+    konversi_crips("C2", c2),
+    konversi_crips("C3", c3),
+    map_kategori_C4[c4],
+    map_kategori_C5[c5]
+])
+
 
 # ============================================================
 # HITUNG SAW & TOPSIS
