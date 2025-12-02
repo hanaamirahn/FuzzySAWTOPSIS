@@ -92,56 +92,115 @@ for i in range(jumlah_alt):
 
 
 # ============================================================
-# HITUNG SAW & TOPSIS
+# HITUNG SAW & TOPSIS (VERSI DETAIL)
 # ============================================================
 if st.button("Hitung SAW dan TOPSIS"):
     df = pd.DataFrame(data_input, columns=["Alternatif", "C1", "C2", "C3", "C4", "C5"])
-    st.subheader("📌 Nilai Crips")
+    st.subheader("📌 Tabel Crips")
     st.dataframe(df)
 
-    # --------------------------------------------------------
-    # SAW NORMALISASI
-    # --------------------------------------------------------
-    df_saw = df.copy()
+    # ============================================================
+    # -------------------------- SAW -----------------------------
+    # ============================================================
+    st.header("📘 Perhitungan Metode SAW")
+
+    # --- Normalisasi SAW ---
+    st.subheader("3️⃣ Tahap Normalisasi SAW")
+
+    df_saw_norm = df.copy()
+
     for c in kriteria:
         if atribut[c] == "benefit":
-            df_saw[c] = df[c] / df[c].max()
-        else:  # cost
-            df_saw[c] = df[c].min() / df[c]
+            df_saw_norm[c] = df[c] / df[c].max()
+        else:
+            df_saw_norm[c] = df[c].min() / df[c]
 
-    # hitung skor akhir
+    df_saw_norm_display = df_saw_norm.copy()
+    df_saw_norm_display.index = [f"A{i+1}" for i in range(len(df))]
+
+    st.dataframe(df_saw_norm_display[kriteria])
+
+    # --- Nilai Akhir SAW ---
+    st.subheader("4️⃣ Nilai Akhir SAW dan Ranking")
+
+    df_saw = df_saw_norm.copy()
     df_saw["Skor_SAW"] = sum(df_saw[c] * bobot[c] for c in kriteria)
     df_saw = df_saw.sort_values("Skor_SAW", ascending=False)
+    df_saw["Ranking"] = range(1, len(df_saw) + 1)
 
-    st.subheader("📊 Hasil SAW")
-    st.dataframe(df_saw[["Alternatif", "Skor_SAW"]])
+    st.dataframe(df_saw[["Alternatif", "Skor_SAW", "Ranking"]])
 
-    # --------------------------------------------------------
-    # TOPSIS
-    # --------------------------------------------------------
+    # ============================================================
+    # ------------------------- TOPSIS ----------------------------
+    # ============================================================
+    st.header("📗 Perhitungan Metode TOPSIS")
+
     df_t = df.copy()
-    R = df_t[kriteria] / np.sqrt((df_t[kriteria]**2).sum())
 
-    # bobot
-    V = R * np.array(list(bobot.values()))
+    # --- 1. Matriks Normalisasi R ---
+    st.subheader("3️⃣ Matriks Ternormalisasi (R)")
 
-    ideal_plus = []
-    ideal_minus = []
+    R = df_t[kriteria] / np.sqrt((df_t[kriteria] ** 2).sum())
+    R.index = df['Alternatif']
+    st.dataframe(R)
+
+    # --- 2. Matriks Ternormalisasi Terbobot (Y) ---
+    st.subheader("4️⃣ Matriks Ternormalisasi Terbobot (Y)")
+
+    bobot_array = np.array(list(bobot.values()))
+    Y = R * bobot_array
+    st.dataframe(Y)
+
+    # --- 3. Solusi Ideal Positif & Negatif ---
+    st.subheader("5️⃣ Solusi Ideal Positif (A+) dan Negatif (A-)")
+
+    A_plus = []
+    A_minus = []
 
     for i, c in enumerate(kriteria):
         if atribut[c] == "benefit":
-            ideal_plus.append(V[c].max())
-            ideal_minus.append(V[c].min())
+            A_plus.append(Y[c].max())
+            A_minus.append(Y[c].min())
         else:
-            ideal_plus.append(V[c].min())
-            ideal_minus.append(V[c].max())
+            A_plus.append(Y[c].min())
+            A_minus.append(Y[c].max())
 
-    D_plus = np.sqrt(((V - ideal_plus)**2).sum(axis=1))
-    D_minus = np.sqrt(((V - ideal_minus)**2).sum(axis=1))
+    A_plus_df = pd.DataFrame([A_plus], columns=kriteria)
+    A_minus_df = pd.DataFrame([A_minus], columns=kriteria)
 
-    preferensi = D_minus / (D_plus + D_minus)
-    df_t["Skor_TOPSIS"] = preferensi
-    df_t = df_t.sort_values("Skor_TOPSIS", ascending=False)
+    st.write("✔ **A+ (Ideal Positif)**")
+    st.dataframe(A_plus_df)
 
-    st.subheader("📊 Hasil TOPSIS")
-    st.dataframe(df_t[["Alternatif", "Skor_TOPSIS"]])
+    st.write("✔ **A– (Ideal Negatif)**")
+    st.dataframe(A_minus_df)
+
+    # --- 4. Menghitung Jarak S+ dan S- ---
+    st.subheader("6️⃣ Jarak ke Solusi Ideal (S+ dan S-)")
+
+    S_plus = np.sqrt(((Y - A_plus) ** 2).sum(axis=1))
+    S_minus = np.sqrt(((Y - A_minus) ** 2).sum(axis=1))
+
+    df_distance = pd.DataFrame({
+        "Alternatif": df["Alternatif"],
+        "S+": S_plus,
+        "S-": S_minus
+    })
+
+    st.dataframe(df_distance)
+
+    # --- 5. Menghitung Nilai Preferensi (C+) ---
+    st.subheader("7️⃣ Nilai Preferensi (C+) dan Ranking")
+
+    C_plus = S_minus / (S_plus + S_minus)
+
+    df_topsis = pd.DataFrame({
+        "Alternatif": df["Alternatif"],
+        "S+": S_plus,
+        "S-": S_minus,
+        "C+": C_plus
+    })
+
+    df_topsis = df_topsis.sort_values("C+", ascending=False)
+    df_topsis["Ranking"] = range(1, len(df_topsis) + 1)
+
+    st.dataframe(df_topsis)
