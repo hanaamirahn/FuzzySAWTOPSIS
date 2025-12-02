@@ -6,9 +6,6 @@ st.set_page_config(page_title="SAW & TOPSIS Cloud Storage", layout="wide")
 
 st.title("Analisis Perbandingan SAW & TOPSIS untuk Pemilihan Cloud Storage")
 
-st.write("Aplikasi ini digunakan untuk menghitung perbandingan lima kriteria Cloud Storage menggunakan metode SAW dan TOPSIS.")
-
-
 # -----------------------------
 # Fixed Kriteria, Bobot, Atribut
 # -----------------------------
@@ -20,6 +17,21 @@ kriteria = ["C1 - Biaya Penyimpanan",
 
 atribut = ["cost", "cost", "benefit", "benefit", "benefit"]
 bobot = np.array([0.25, 0.20, 0.20, 0.15, 0.20])
+
+# Mapping kategori ke angka
+map_C4 = {
+    "Rendah": 1,
+    "Sedang": 2,
+    "Baik": 3,
+    "Sangat Baik": 4
+}
+
+map_C5 = {
+    "Kurang": 1,
+    "Cukup": 2,
+    "Baik": 3,
+    "Sangat Baik": 4
+}
 
 # -----------------------------
 # Input jumlah alternatif
@@ -43,9 +55,35 @@ data = []
 for i in range(jumlah_alternatif):
     st.subheader(nama_alternatif[i])
     nilai = []
-    for k in kriteria:
-        v = st.number_input(f"Masukkan nilai untuk {k}", min_value=0.0, value=1.0, step=0.1, key=f"{i}-{k}")
-        nilai.append(v)
+
+    # C1
+    c1 = st.number_input(f"Masukkan nilai untuk C1 - Biaya Penyimpanan", min_value=0.0, value=1.0, key=f"{i}-c1")
+    nilai.append(c1)
+
+    # C2
+    c2 = st.number_input(f"Masukkan nilai untuk C2 - Biaya Egress", min_value=0.0, value=1.0, key=f"{i}-c2")
+    nilai.append(c2)
+
+    # C3
+    c3 = st.number_input(f"Masukkan nilai untuk C3 - Latency/Kecepatan Akses", min_value=0.0, value=1.0, key=f"{i}-c3")
+    nilai.append(c3)
+
+    # C4 → dropdown
+    c4 = st.selectbox(
+        "Pilih kategori untuk C4 - Skalabilitas & Kemudahan Integrasi",
+        list(map_C4.keys()),
+        key=f"{i}-c4"
+    )
+    nilai.append(map_C4[c4])
+
+    # C5 → dropdown
+    c5 = st.selectbox(
+        "Pilih kategori untuk C5 - Keamanan & Compliance",
+        list(map_C5.keys()),
+        key=f"{i}-c5"
+    )
+    nilai.append(map_C5[c5])
+
     data.append(nilai)
 
 data = np.array(data)
@@ -81,13 +119,13 @@ df_saw = pd.DataFrame({
 # ===== METODE TOPSIS ========
 # ============================
 def topsis(data, atribut, bobot):
-    # Step 1: Normalisasi
+    # Normalisasi
     norm = data / np.sqrt((data**2).sum(axis=0))
 
-    # Step 2: Pembobotan
+    # Pembobotan
     y = norm * bobot
 
-    # Step 3: A+ dan A-
+    # Ideal positif & negatif
     ideal_plus = np.zeros(data.shape[1])
     ideal_minus = np.zeros(data.shape[1])
 
@@ -99,11 +137,11 @@ def topsis(data, atribut, bobot):
             ideal_plus[j] = y[:, j].min()
             ideal_minus[j] = y[:, j].max()
 
-    # Step 4: Jarak ke A+ dan A-
+    # Jarak
     D_plus = np.sqrt(((y - ideal_plus)**2).sum(axis=1))
     D_minus = np.sqrt(((y - ideal_minus)**2).sum(axis=1))
 
-    # Step 5: Nilai Preferensi
+    # Nilai preferensi
     V = D_minus / (D_plus + D_minus)
     return V
 
