@@ -83,7 +83,7 @@ for i in range(jumlah_alt):
     c4 = st.selectbox("C4 Skalabilitas & Kemudahan Integrasi", ["Rendah", "Sedang", "Baik", "Sangat Baik"], key=f"c4_{i}")
     c5 = st.selectbox("C5 Keamanan & Compliance", ["Kurang", "Cukup", "Baik", "Sangat Baik"], key=f"c5_{i}")
 
-data_input.append([
+    data_input.append([
     nama,
     konversi_crips("C1", c1),
     konversi_crips("C2", c2),
