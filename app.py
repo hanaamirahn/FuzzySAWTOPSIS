@@ -6,6 +6,66 @@ st.set_page_config(page_title="SAW & TOPSIS Cloud Storage", layout="wide")
 st.title("Analisis Metode SAW & TOPSIS untuk Pemilihan Cloud Storage")
 
 # ============================================================
+# INFORMASI & PANDUAN PENGGUNAAN APLIKASI
+# ============================================================
+st.markdown("---")
+st.header("📘 Panduan Penggunaan Aplikasi")
+
+with st.expander("Klik untuk melihat tata cara penggunaan aplikasi"):
+    st.markdown("""
+    **Langkah-langkah menjalankan analisis SAW & TOPSIS:**
+
+    **1. Tentukan jumlah alternatif**  
+    Pilih berapa provider/cloud storage yang ingin dibandingkan (1–5).
+
+    **2. Isi data masing-masing alternatif**  
+    Masukkan:
+    - Nama alternatif (misalnya Amazon S3, Google Cloud Storage)
+    - Biaya penyimpanan per GB  
+    - Biaya egress per GB  
+    - Latency dalam milidetik  
+    - Penilaian kualitas integrasi  
+    - Penilaian keamanan & compliance  
+
+    **3. Tekan tombol “Hitung SAW dan TOPSIS”**  
+    Sistem akan otomatis:
+    - Mengonversi nilai menjadi Crips  
+    - Melakukan Normalisasi SAW  
+    - Menghitung Skor SAW  
+    - Menghitung normalisasi TOPSIS  
+    - Menentukan solusi ideal, jarak S+, S−  
+    - Menghasilkan nilai preferensi (C+)  
+    - Mengurutkan ranking dari terbaik ke terendah  
+
+    **4. Bandingkan hasil SAW dan TOPSIS**  
+    Di bagian akhir terdapat tabel perbandingan ranking + analisis otomatis.
+    """)
+
+st.markdown("---")
+
+# ============================================================
+# TABEL INFORMASI KRITERIA
+# ============================================================
+st.subheader("📌 Informasi Kriteria yang Digunakan")
+
+df_info_kriteria = pd.DataFrame({
+    "Kode Kriteria": ["C1", "C2", "C3", "C4", "C5"],
+    "Nama Kriteria": [
+        "Biaya penyimpanan",
+        "Biaya Egress",
+        "Latency / Kecepatan Akses",
+        "Skalabilitas & Kemudahan Integrasi",
+        "Keamanan & Compliance"
+    ],
+    "Atribut": ["Cost", "Cost", "Benefit", "Benefit", "Benefit"],
+    "Bobot": [0.25, 0.20, 0.20, 0.15, 0.20]
+})
+
+st.dataframe(df_info_kriteria, use_container_width=True)
+st.markdown("---")
+
+
+# ============================================================
 # 1. DEFINISI KRITERIA (Fixed)
 # ============================================================
 kriteria = ["C1", "C2", "C3", "C4", "C5"]
